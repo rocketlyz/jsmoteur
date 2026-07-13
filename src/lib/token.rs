@@ -2,7 +2,7 @@ use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    // Single-character punctuation / operators (MVP)
+    // Punctuation
     ParenL,
     ParenR,
     BraceL,
@@ -12,11 +12,31 @@ pub enum TokenKind {
     Comma,
     Dot,
     Semi,
+    Colon,
+    Conditional, // ?
+
+    // Assignment / arithmetic
     Assign,
     Add,
     Sub,
     Mul,
     Div,
+    Mod,
+
+    // Comparison / equality (longest-match: === before == before =)
+    LT,
+    GT,
+    LE,
+    GE,
+    Eq,
+    NotEq,
+    EqStrict,
+    NotEqStrict,
+
+    // Logic / unary
+    Not,
+    And,
+    Or,
 
     // Literals
     Identifier,

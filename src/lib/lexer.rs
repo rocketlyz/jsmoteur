@@ -1,7 +1,7 @@
-//! Crafting Interpreters–style scanner for JavaScript (MVP).
+//! Crafting Interpreters–style scanner for JavaScript.
 //!
-//! Multi-character operators (`==`, `===`, `++`, `>>>`, …) are intentionally
-//! deferred — see Denotation in symbol.rs for the full set.
+//! Longest-match for multi-char ops (`===` > `==` > `=`). Remaining operators
+//! (`++`, `>>>`, compound assign, …) — see docs/TODO-scanner-tokens.md.
 
 use crate::symbol::{keyword_from_str, Keyword};
 use crate::token::{Token, TokenKind};
@@ -47,11 +47,62 @@ impl<'a> Scanner<'a> {
             ',' => Some(self.make_token(TokenKind::Comma)),
             '.' => Some(self.make_token(TokenKind::Dot)),
             ';' => Some(self.make_token(TokenKind::Semi)),
-            // TODO: multi-char ops (==, ===, +=, …)
-            '=' => Some(self.make_token(TokenKind::Assign)),
+            '?' => Some(self.make_token(TokenKind::Conditional)),
+            ':' => Some(self.make_token(TokenKind::Colon)),
+            '%' => Some(self.make_token(TokenKind::Mod)),
             '+' => Some(self.make_token(TokenKind::Add)),
             '-' => Some(self.make_token(TokenKind::Sub)),
             '*' => Some(self.make_token(TokenKind::Mul)),
+            '!' => {
+                if self.match_char('=') {
+                    if self.match_char('=') {
+                        Some(self.make_token(TokenKind::NotEqStrict))
+                    } else {
+                        Some(self.make_token(TokenKind::NotEq))
+                    }
+                } else {
+                    Some(self.make_token(TokenKind::Not))
+                }
+            }
+            '=' => {
+                if self.match_char('=') {
+                    if self.match_char('=') {
+                        Some(self.make_token(TokenKind::EqStrict))
+                    } else {
+                        Some(self.make_token(TokenKind::Eq))
+                    }
+                } else {
+                    Some(self.make_token(TokenKind::Assign))
+                }
+            }
+            '<' => {
+                if self.match_char('=') {
+                    Some(self.make_token(TokenKind::LE))
+                } else {
+                    Some(self.make_token(TokenKind::LT))
+                }
+            }
+            '>' => {
+                if self.match_char('=') {
+                    Some(self.make_token(TokenKind::GE))
+                } else {
+                    Some(self.make_token(TokenKind::GT))
+                }
+            }
+            '&' => {
+                if self.match_char('&') {
+                    Some(self.make_token(TokenKind::And))
+                } else {
+                    Some(self.make_token(TokenKind::Error))
+                }
+            }
+            '|' => {
+                if self.match_char('|') {
+                    Some(self.make_token(TokenKind::Or))
+                } else {
+                    Some(self.make_token(TokenKind::Error))
+                }
+            }
             '/' => {
                 if self.match_char('/') {
                     while self.peek() != '\n' && !self.is_at_end() {
@@ -298,5 +349,83 @@ mod tests {
         assert_eq!(tokens[0].lexeme, r#""hello \"world\"""#);
         assert_eq!(tokens[1].kind, TokenKind::Semi);
         assert_eq!(tokens[2].kind, TokenKind::Eof);
+    }
+
+    /// Phase 1 Ch.4 acceptance: `===` / `&&` / `!` are single tokens.
+    #[test]
+    fn scans_ch4_acceptance() {
+        let source = "var x = 1 + 2 === 3 && !(false);";
+        let mut scanner = Scanner::new(source);
+        let tokens = scanner.scan_tokens();
+        let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                &TokenKind::Var,
+                &TokenKind::Identifier,
+                &TokenKind::Assign,
+                &TokenKind::Number(1.0),
+                &TokenKind::Add,
+                &TokenKind::Number(2.0),
+                &TokenKind::EqStrict,
+                &TokenKind::Number(3.0),
+                &TokenKind::And,
+                &TokenKind::Not,
+                &TokenKind::ParenL,
+                &TokenKind::False,
+                &TokenKind::ParenR,
+                &TokenKind::Semi,
+                &TokenKind::Eof,
+            ]
+        );
+        assert_eq!(tokens[6].lexeme, "===");
+        assert_eq!(tokens[8].lexeme, "&&");
+        assert_eq!(tokens[9].lexeme, "!");
+    }
+
+    #[test]
+    fn longest_match_equality_and_comparison() {
+        let source = "== === != !== < <= > >=";
+        let mut scanner = Scanner::new(source);
+        let kinds: Vec<TokenKind> = scanner.scan_tokens().into_iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Eq,
+                TokenKind::EqStrict,
+                TokenKind::NotEq,
+                TokenKind::NotEqStrict,
+                TokenKind::LT,
+                TokenKind::LE,
+                TokenKind::GT,
+                TokenKind::GE,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn scans_logic_mod_ternary() {
+        let source = "!a && b || c % 2 ? x : y";
+        let mut scanner = Scanner::new(source);
+        let kinds: Vec<TokenKind> = scanner.scan_tokens().into_iter().map(|t| t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::Not,
+                TokenKind::Identifier,
+                TokenKind::And,
+                TokenKind::Identifier,
+                TokenKind::Or,
+                TokenKind::Identifier,
+                TokenKind::Mod,
+                TokenKind::Number(2.0),
+                TokenKind::Conditional,
+                TokenKind::Identifier,
+                TokenKind::Colon,
+                TokenKind::Identifier,
+                TokenKind::Eof,
+            ]
+        );
     }
 }

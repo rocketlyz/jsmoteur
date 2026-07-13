@@ -11,7 +11,7 @@
 
 ## 进度清单
 
-- [ ] Ch.4 Scanning（补齐）
+- [x] Ch.4 Scanning（补齐）
 - [ ] Ch.5 Representing Code
 - [ ] Ch.6 Parsing Expressions
 - [ ] Ch.7 Evaluating Expressions

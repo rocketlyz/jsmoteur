@@ -1,46 +1,30 @@
-# Scanner MVP — 未实现 Token TODO
+# Scanner — 未实现 Token TODO
 
-> 对应 Crafting Interpreters 风格 Scanning 的第一版边界。  
-> 已实现见 [`src/lib/token.rs`](src/lib/token.rs) / [`src/lib/lexer.rs`](src/lib/lexer.rs)。  
-> 完整运算符表见 [`src/lib/symbol.rs`](src/lib/symbol.rs) 的 `Denotation`。
+> 对应 Crafting Interpreters 风格 Scanning。  
+> 已实现见 [`src/lib/token.rs`](../src/lib/token.rs) / [`src/lib/lexer.rs`](../src/lib/lexer.rs)。  
+> 完整运算符表见 [`src/lib/symbol.rs`](../src/lib/symbol.rs) 的 `Denotation`。
 
-## 已实现（MVP）
+## 已实现（含 Phase 1 Ch.4）
 
 | 类别 | Token |
 |------|--------|
-| 标点 | `( ) { } [ ] , . ;` |
-| 单字符运算 | `=` `+` `-` `*` `/` |
+| 标点 | `( ) { } [ ] , . ;` `?` `:` |
+| 单字符运算 | `=` `+` `-` `*` `/` `%` `!` `<` `>` |
+| 多字符（最长匹配） | `==` `===` `!=` `!==` `<=` `>=` `&&` `\|\|` |
 | 字面量 | `Identifier`、`Number`、`"string"`（含 `\"` `\\`）、`true`/`false`/`null` |
 | 关键字（升格为 TokenKind） | `var` `let` `const` `function` `if` `else` `return` `while` `for` `class` `new` `this` `super` |
 | 其它 | `Eof`、`Error`；`//` 行注释、`/* */` 块注释（不嵌套） |
 
 ---
 
-## 1. 多字符运算符（下一优先）
-
-`Denotation` 已定义，Scanner 尚未识别；当前会被拆成多个单字符 token 或 Error。
-
-### 比较 / 相等
-
-| Lexeme | Denotation | TokenKind（待加） |
-|--------|------------|-------------------|
-| `<` | `LT` | `LT` |
-| `>` | `GT` | `GT` |
-| `<=` | `LE` | `LE` |
-| `>=` | `GE` | `GE` |
-| `==` | `Eq` | `Eq` |
-| `!=` | `NotEq` | `NotEq` |
-| `===` | `EqStrict` | `EqStrict` |
-| `!==` | `NotEqStrict` | `NotEqStrict` |
+## 1. 多字符运算符（剩余）
 
 ### 算术 / 一元
 
 | Lexeme | Denotation | TokenKind（待加） |
 |--------|------------|-------------------|
-| `%` | `Mod` | `Mod` |
 | `++` | `Inc` | `Inc` |
 | `--` | `Dec` | `Dec` |
-| `!` | `Not` | `Not` |
 | `~` | `BitNot` | `BitNot` |
 
 ### 位运算 / 移位
@@ -48,20 +32,11 @@
 | Lexeme | Denotation | TokenKind（待加） |
 |--------|------------|-------------------|
 | `&` | `BitAnd` | `BitAnd` |
-| `|` | `BitOr` | `BitOr` |
+| `\|` | `BitOr` | `BitOr` |
 | `^` | `BitXor` | `BitXor` |
 | `<<` | `SHL` | `SHL` |
 | `>>` | `SAR` | `SAR` |
 | `>>>` | `SHR` | `SHR` |
-
-### 逻辑 / 三元 / 冒号
-
-| Lexeme | Denotation | TokenKind（待加） |
-|--------|------------|-------------------|
-| `&&` | `And` | `And` |
-| `||` | `Or` | `Or` |
-| `?` | `Conditional` | `Conditional` |
-| `:` | `Colon` | `Colon` |
 
 ### 复合赋值
 
@@ -76,10 +51,10 @@
 | `>>=` | `AssignSAR` | `AssignSAR` |
 | `>>>=` | `AssignSHR` | `AssignSHR` |
 | `&=` | `AssignBitAnd` | `AssignBitAnd` |
-| `|=` | `AssignBitOr` | `AssignBitOr` |
+| `\|=` | `AssignBitOr` | `AssignBitOr` |
 | `^=` | `AssignBitXor` | `AssignBitXor` |
 
-**实现提示：** 在 `scan_token` 里对 `=` `+` `-` `<` `>` `!` `&` `|` 等做 `match_char` / `peek` 最长匹配（如 `===` 优先于 `==` 优先于 `=`）。
+**实现提示：** 在 `scan_token` 里对 `=` `+` `-` `<` `>` `!` `&` `|` 等做 `match_char` / `peek` 最长匹配（如 `>>>` 优先于 `>>` 优先于 `>`）。
 
 ---
 
@@ -127,22 +102,21 @@
 
 ---
 
-## 4. 建议落地顺序
+## 4. 建议落地顺序（剩余）
 
-1. **比较与相等**（`<` `>` `<=` `>=` `==` `!=` `===` `!==`）— 表达式解析刚需  
-2. **逻辑与一元**（`!` `&&` `||` `%` `++` `--` `?` `:`）  
-3. **复合赋值与位运算**  
-4. **剩余关键字升格**（按 Parser 需要：`break`/`continue`/`switch`/`try`/`catch` 等）  
-5. **单引号字符串 + 数字扩展**  
-6. **模板字符串 / 正则**（需 Parser 协同）
+1. **复合赋值与位运算**（`+=`、`>>>` 等）
+2. **`++` / `--` / `~`**
+3. **剩余关键字升格**（按 Parser 需要：`break`/`continue`/`switch`/`try`/`catch` 等）
+4. **单引号字符串 + 数字扩展**
+5. **模板字符串 / 正则**（需 Parser 协同）
 
 ---
 
-## 5. 验收清单（完成后勾选）
+## 5. 验收清单
 
-- [ ] `TokenKind` 覆盖 `Denotation` 全集  
-- [ ] Scanner 最长匹配多字符运算符  
-- [ ] 全部 `Keyword` 映射到独立 `TokenKind`（或明确保留为 Identifier 的策略文档）  
-- [ ] 单引号字符串测试  
-- [ ] `==` / `===` / `+=` / `>>>` 等单元测试  
-- [ ] 更新本文件：将已完成项移到「已实现」
+- [ ] `TokenKind` 覆盖 `Denotation` 全集
+- [x] Scanner 最长匹配多字符运算符（Ch.4 优先集：`===`/`==`/`!==`/`!=`/`&&`/`||`/`<=`/`>=`）
+- [ ] 全部 `Keyword` 映射到独立 `TokenKind`（或明确保留为 Identifier 的策略文档）
+- [ ] 单引号字符串测试
+- [x] `==` / `===` 单元测试（`+=` / `>>>` 仍待）
+- [x] 更新本文件：将已完成项移到「已实现」
