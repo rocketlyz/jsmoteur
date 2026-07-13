@@ -26,6 +26,11 @@ pub enum Expr {
         op: TokenKind,
         right: Box<Expr>,
     },
+    Logical {
+        left: Box<Expr>,
+        op: TokenKind,
+        right: Box<Expr>,
+    },
     Unary {
         op: TokenKind,
         right: Box<Expr>,
@@ -49,6 +54,15 @@ pub enum Stmt {
         initializer: Option<Expr>,
     },
     Block(Vec<Stmt>),
+    If {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+    },
 }
 
 /// Lisp-style tree dump for debugging (book's AstPrinter analogue).
@@ -61,6 +75,14 @@ pub fn pretty_print(expr: &Expr) -> String {
                 pretty_print(left),
                 pretty_print(right)
             )
+        }
+        Expr::Logical { left, op, right } => {
+            let name = match op {
+                TokenKind::And => "and",
+                TokenKind::Or => "or",
+                _ => "?",
+            };
+            format!("({} {} {})", name, pretty_print(left), pretty_print(right))
         }
         Expr::Unary { op, right } => {
             format!("({} {})", op_lexeme(op), pretty_print(right))
@@ -106,6 +128,28 @@ pub fn pretty_print_stmt(stmt: &Stmt) -> String {
             let body: Vec<_> = stmts.iter().map(pretty_print_stmt).collect();
             format!("(block {})", body.join(" "))
         }
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => match else_branch {
+            Some(els) => format!(
+                "(if {} {} {})",
+                pretty_print(condition),
+                pretty_print_stmt(then_branch),
+                pretty_print_stmt(els)
+            ),
+            None => format!(
+                "(if {} {})",
+                pretty_print(condition),
+                pretty_print_stmt(then_branch)
+            ),
+        },
+        Stmt::While { condition, body } => format!(
+            "(while {} {})",
+            pretty_print(condition),
+            pretty_print_stmt(body)
+        ),
     }
 }
 

@@ -7,6 +7,7 @@
 //!   (ponytail: JS-simplified; upgrade to full JS falsy later if needed).
 //! - Uninitialized `var`/`let`/`const` → `null`.
 //! - `console.log` → `Stmt::Print` (host stdout / collected output).
+//! - `if` / `while`; `for` desugared in parser; `&&` / `||` short-circuit (JS-style values).
 
 use std::cell::RefCell;
 use std::fmt;
@@ -100,6 +101,25 @@ impl Interpreter {
                 self.environment = previous;
                 result
             }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                if is_truthy(&self.evaluate(condition)?) {
+                    self.execute(then_branch)
+                } else if let Some(els) = else_branch {
+                    self.execute(els)
+                } else {
+                    Ok(())
+                }
+            }
+            Stmt::While { condition, body } => {
+                while is_truthy(&self.evaluate(condition)?) {
+                    self.execute(body)?;
+                }
+                Ok(())
+            }
         }
     }
 
@@ -129,6 +149,26 @@ impl Interpreter {
                     },
                     TokenKind::Not => Ok(Value::Bool(!is_truthy(&r))),
                     _ => Err(err(&format!("Unknown unary operator {:?}", op))),
+                }
+            }
+            Expr::Logical { left, op, right } => {
+                let l = self.evaluate(left)?;
+                match op {
+                    TokenKind::Or => {
+                        if is_truthy(&l) {
+                            Ok(l)
+                        } else {
+                            self.evaluate(right)
+                        }
+                    }
+                    TokenKind::And => {
+                        if !is_truthy(&l) {
+                            Ok(l)
+                        } else {
+                            self.evaluate(right)
+                        }
+                    }
+                    _ => Err(err(&format!("Unknown logical operator {:?}", op))),
                 }
             }
             Expr::Binary { left, op, right } => {
@@ -286,6 +326,37 @@ mod tests {
         assert_eq!(
             interp.environment.borrow().get("x").unwrap(),
             Value::Number(7.0)
+        );
+    }
+
+    #[test]
+    fn ch9_acceptance_while_if() {
+        let interp = run(
+            "var i = 0;\nwhile (i < 3) { i = i + 1; }\nif (i === 3) { console.log(i); }",
+        )
+        .unwrap();
+        assert_eq!(interp.output, vec!["3".to_string()]);
+    }
+
+    #[test]
+    fn logical_and_short_circuits() {
+        let interp = run("var x = 0;\nfalse && (x = 1);\nconsole.log(x);").unwrap();
+        assert_eq!(interp.output, vec!["0".to_string()]);
+    }
+
+    #[test]
+    fn logical_or_short_circuits() {
+        let interp = run("var x = 0;\ntrue || (x = 1);\nconsole.log(x);").unwrap();
+        assert_eq!(interp.output, vec!["0".to_string()]);
+    }
+
+    #[test]
+    fn for_desugar_prints() {
+        let interp =
+            run("for (var i = 0; i < 3; i = i + 1) { console.log(i); }").unwrap();
+        assert_eq!(
+            interp.output,
+            vec!["0".to_string(), "1".to_string(), "2".to_string()]
         );
     }
 }

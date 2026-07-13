@@ -1,12 +1,14 @@
-//! Recursive-descent parser (expressions + statements, Ch.6–8).
+//! Recursive-descent parser (expressions + statements, Ch.6–9).
 //!
 //! Program: declaration* until Eof
 //! declaration → varDecl | statement
-//! statement   → printStmt | block | exprStmt
-//! printStmt   → "console" "." "log" "(" expression ")" ";"
+//! statement   → if | while | for | printStmt | block | exprStmt
 //! expression  → assignment
-//! assignment  → IDENTIFIER "=" assignment | equality
-//! … equality → … → primary (incl. IDENTIFIER)
+//! assignment  → IDENTIFIER "=" assignment | logic_or
+//! logic_or    → logic_and ( "||" logic_and )*
+//! logic_and   → equality ( "&&" equality )*
+//! … equality → … → primary
+//! for desugars to Block + While.
 
 use crate::ast::{Expr, Literal, Stmt, VarKind};
 use crate::token::{Token, TokenKind};
@@ -87,6 +89,15 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt, ParseError> {
+        if self.match_kinds(&[TokenKind::If]) {
+            return self.if_statement();
+        }
+        if self.match_kinds(&[TokenKind::While]) {
+            return self.while_statement();
+        }
+        if self.match_kinds(&[TokenKind::For]) {
+            return self.for_statement();
+        }
         if self.check_kind(&TokenKind::BraceL) {
             self.advance();
             return Ok(Stmt::Block(self.block()?));
@@ -95,6 +106,71 @@ impl Parser {
             return self.print_statement();
         }
         self.expression_statement()
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::ParenL, "Expect '(' after 'if'.")?;
+        let condition = self.expression()?;
+        self.consume(TokenKind::ParenR, "Expect ')' after if condition.")?;
+        let then_branch = Box::new(self.statement()?);
+        let else_branch = if self.match_kinds(&[TokenKind::Else]) {
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+        Ok(Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        })
+    }
+
+    fn while_statement(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::ParenL, "Expect '(' after 'while'.")?;
+        let condition = self.expression()?;
+        self.consume(TokenKind::ParenR, "Expect ')' after while condition.")?;
+        let body = Box::new(self.statement()?);
+        Ok(Stmt::While { condition, body })
+    }
+
+    /// Desugar `for` into `{ initializer; while (condition) { body; increment; } }`.
+    fn for_statement(&mut self) -> Result<Stmt, ParseError> {
+        self.consume(TokenKind::ParenL, "Expect '(' after 'for'.")?;
+
+        let initializer = if self.match_kinds(&[TokenKind::Semi]) {
+            None
+        } else if self.match_kinds(&[TokenKind::Var, TokenKind::Let, TokenKind::Const]) {
+            Some(self.var_declaration()?)
+        } else {
+            Some(self.expression_statement()?)
+        };
+
+        let condition = if !self.check_kind(&TokenKind::Semi) {
+            self.expression()?
+        } else {
+            Expr::Literal(Literal::Bool(true))
+        };
+        self.consume(TokenKind::Semi, "Expect ';' after loop condition.")?;
+
+        let increment = if !self.check_kind(&TokenKind::ParenR) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        self.consume(TokenKind::ParenR, "Expect ')' after for clauses.")?;
+
+        let mut body = self.statement()?;
+        if let Some(inc) = increment {
+            body = Stmt::Block(vec![body, Stmt::Expression(inc)]);
+        }
+        body = Stmt::While {
+            condition,
+            body: Box::new(body),
+        };
+        if let Some(init) = initializer {
+            body = Stmt::Block(vec![init, body]);
+        }
+        Ok(body)
     }
 
     fn is_console_log(&self) -> bool {
@@ -152,7 +228,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> Result<Expr, ParseError> {
-        let expr = self.equality()?;
+        let expr = self.logic_or()?;
         if self.match_kinds(&[TokenKind::Assign]) {
             let value = self.assignment()?;
             if let Expr::Variable(name) = expr {
@@ -162,6 +238,34 @@ impl Parser {
                 });
             }
             return Err(self.error(self.previous(), "Invalid assignment target."));
+        }
+        Ok(expr)
+    }
+
+    fn logic_or(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.logic_and()?;
+        while self.match_kinds(&[TokenKind::Or]) {
+            let op = self.previous().kind.clone();
+            let right = self.logic_and()?;
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
+        }
+        Ok(expr)
+    }
+
+    fn logic_and(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.equality()?;
+        while self.match_kinds(&[TokenKind::And]) {
+            let op = self.previous().kind.clone();
+            let right = self.equality()?;
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                op,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
@@ -442,5 +546,22 @@ mod tests {
             Stmt::Print(e) => assert_eq!(pretty_print(e), "b"),
             other => panic!("{:?}", other),
         }
+    }
+
+    #[test]
+    fn parses_logical_and_or() {
+        use crate::ast::pretty_print;
+        let stmts = parse_src("a && b || c;").unwrap();
+        assert_eq!(pretty_print(expr_of(&stmts[0])), "(or (and a b) c)");
+    }
+
+    #[test]
+    fn parses_while_if() {
+        use crate::ast::pretty_print_stmt;
+        let stmts = parse_src("while (i < 3) { i = i + 1; }\nif (i === 3) console.log(i);")
+            .unwrap();
+        assert!(matches!(stmts[0], Stmt::While { .. }));
+        assert!(matches!(stmts[1], Stmt::If { .. }));
+        let _ = pretty_print_stmt(&stmts[0]);
     }
 }

@@ -16,7 +16,7 @@
 - [x] Ch.6 Parsing Expressions
 - [x] Ch.7 Evaluating Expressions
 - [x] Ch.8 Statements and State
-- [ ] Ch.9 Control Flow
+- [x] Ch.9 Control Flow
 - [ ] Ch.10 Functions
 - [ ] Ch.11 Resolving and Binding
 - [ ] Ch.12–13 Classes / Inheritance（可选）
