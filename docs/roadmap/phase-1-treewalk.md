@@ -15,7 +15,7 @@
 - [x] Ch.5 Representing Code
 - [x] Ch.6 Parsing Expressions
 - [x] Ch.7 Evaluating Expressions
-- [ ] Ch.8 Statements and State
+- [x] Ch.8 Statements and State
 - [ ] Ch.9 Control Flow
 - [ ] Ch.10 Functions
 - [ ] Ch.11 Resolving and Binding

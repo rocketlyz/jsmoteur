@@ -1,7 +1,6 @@
-//! Expression AST for the tree-walk interpreter.
+//! Expression / statement AST for the tree-walk interpreter.
 //!
 //! Traversal style (project-wide): `enum` + `match` — no Visitor/`accept`.
-//! Stmt nodes land in Ch.8; Variable/Call/Assign when the parser needs them.
 
 use crate::token::TokenKind;
 
@@ -11,6 +10,13 @@ pub enum Literal {
     String(String),
     Bool(bool),
     Null,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VarKind {
+    Var,
+    Let,
+    Const,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +32,23 @@ pub enum Expr {
     },
     Literal(Literal),
     Grouping(Box<Expr>),
+    Variable(String),
+    Assign {
+        name: String,
+        value: Box<Expr>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stmt {
+    Expression(Expr),
+    Print(Expr),
+    Var {
+        kind: VarKind,
+        name: String,
+        initializer: Option<Expr>,
+    },
+    Block(Vec<Stmt>),
 }
 
 /// Lisp-style tree dump for debugging (book's AstPrinter analogue).
@@ -44,7 +67,6 @@ pub fn pretty_print(expr: &Expr) -> String {
         }
         Expr::Literal(lit) => match lit {
             Literal::Number(n) => {
-                // Integers print without trailing .0 for readable trees.
                 if n.fract() == 0.0 && n.is_finite() {
                     format!("{}", *n as i64)
                 } else {
@@ -56,6 +78,34 @@ pub fn pretty_print(expr: &Expr) -> String {
             Literal::Null => "null".to_string(),
         },
         Expr::Grouping(inner) => format!("(group {})", pretty_print(inner)),
+        Expr::Variable(name) => name.clone(),
+        Expr::Assign { name, value } => format!("(assign {} {})", name, pretty_print(value)),
+    }
+}
+
+pub fn pretty_print_stmt(stmt: &Stmt) -> String {
+    match stmt {
+        Stmt::Expression(e) => pretty_print(e),
+        Stmt::Print(e) => format!("(print {})", pretty_print(e)),
+        Stmt::Var {
+            kind,
+            name,
+            initializer,
+        } => {
+            let k = match kind {
+                VarKind::Var => "var",
+                VarKind::Let => "let",
+                VarKind::Const => "const",
+            };
+            match initializer {
+                Some(init) => format!("({} {} {})", k, name, pretty_print(init)),
+                None => format!("({} {})", k, name),
+            }
+        }
+        Stmt::Block(stmts) => {
+            let body: Vec<_> = stmts.iter().map(pretty_print_stmt).collect();
+            format!("(block {})", body.join(" "))
+        }
     }
 }
 
@@ -98,7 +148,6 @@ mod tests {
 
     #[test]
     fn pretty_prints_unary_and_grouping() {
-        // -(4) → (- (group 4))
         let expr = Expr::Unary {
             op: TokenKind::Sub,
             right: Box::new(Expr::Grouping(Box::new(Expr::Literal(Literal::Number(
@@ -110,7 +159,6 @@ mod tests {
 
     #[test]
     fn pretty_prints_nested_precedence_shape() {
-        // 1 + 2 * 3  as tree with * under +
         let expr = Expr::Binary {
             left: Box::new(Expr::Literal(Literal::Number(1.0))),
             op: TokenKind::Add,

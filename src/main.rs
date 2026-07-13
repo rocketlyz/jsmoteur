@@ -2,8 +2,8 @@ use std::env;
 use std::fs;
 use std::process::exit;
 
-use lib::ast::pretty_print;
-use lib::interpreter::interpret;
+use lib::ast::pretty_print_stmt;
+use lib::interpreter::Interpreter;
 use lib::lexer::Scanner;
 use lib::parser::Parser;
 
@@ -28,12 +28,12 @@ fn main() {
 
     println!("\n--- ast ---");
     let mut parser = Parser::new(tokens);
-    let exprs = match parser.parse() {
-        Ok(exprs) => {
-            for expr in &exprs {
-                println!("{}", pretty_print(expr));
+    let stmts = match parser.parse() {
+        Ok(stmts) => {
+            for stmt in &stmts {
+                println!("{}", pretty_print_stmt(stmt));
             }
-            exprs
+            stmts
         }
         Err(e) => {
             eprintln!("{}", e);
@@ -41,16 +41,10 @@ fn main() {
         }
     };
 
-    println!("\n--- values ---");
-    match interpret(&exprs) {
-        Ok(values) => {
-            for v in values {
-                println!("{}", v);
-            }
-        }
-        Err(e) => {
-            eprintln!("{}", e);
-            exit(1);
-        }
+    println!("\n--- run ---");
+    let mut interp = Interpreter::new();
+    if let Err(e) = interp.interpret(&stmts) {
+        eprintln!("{}", e);
+        exit(1);
     }
 }

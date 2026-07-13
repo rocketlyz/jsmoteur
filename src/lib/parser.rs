@@ -1,17 +1,14 @@
-//! Recursive-descent expression parser (Crafting Interpreters Ch.6 / book Ch.4).
+//! Recursive-descent parser (expressions + statements, Ch.6–8).
 //!
-//! Grammar (high → low binding via call tower):
-//!   expression  → equality
-//!   equality    → comparison ( ( == | != | === | !== ) comparison )*
-//!   comparison  → term ( ( < | <= | > | >= ) term )*
-//!   term        → factor ( ( + | - ) factor )*
-//!   factor      → unary ( ( * | / | % ) unary )*
-//!   unary       → ( ! | - ) unary | primary
-//!   primary     → Number | String | true | false | null | "(" expression ")"
-//!
-//! Program (Ch.6 only): ( expression ";" )* until Eof. Stmt arrives in Ch.8.
+//! Program: declaration* until Eof
+//! declaration → varDecl | statement
+//! statement   → printStmt | block | exprStmt
+//! printStmt   → "console" "." "log" "(" expression ")" ";"
+//! expression  → assignment
+//! assignment  → IDENTIFIER "=" assignment | equality
+//! … equality → … → primary (incl. IDENTIFIER)
 
-use crate::ast::{Expr, Literal};
+use crate::ast::{Expr, Literal, Stmt, VarKind};
 use crate::token::{Token, TokenKind};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,15 +33,13 @@ impl Parser {
         Parser { tokens, current: 0 }
     }
 
-    /// Parse zero or more `expression ';'` until EOF.
-    /// On error: synchronize and keep going; return first error if any occurred.
-    pub fn parse(&mut self) -> Result<Vec<Expr>, ParseError> {
-        let mut exprs = Vec::new();
+    pub fn parse(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        let mut stmts = Vec::new();
         let mut first_err: Option<ParseError> = None;
 
         while !self.is_at_end() {
-            match self.expression_statement() {
-                Ok(expr) => exprs.push(expr),
+            match self.declaration() {
+                Ok(stmt) => stmts.push(stmt),
                 Err(e) => {
                     if first_err.is_none() {
                         first_err = Some(e);
@@ -56,18 +51,119 @@ impl Parser {
 
         match first_err {
             Some(e) => Err(e),
-            None => Ok(exprs),
+            None => Ok(stmts),
         }
     }
 
-    fn expression_statement(&mut self) -> Result<Expr, ParseError> {
+    fn declaration(&mut self) -> Result<Stmt, ParseError> {
+        if self.match_kinds(&[TokenKind::Var, TokenKind::Let, TokenKind::Const]) {
+            return self.var_declaration();
+        }
+        self.statement()
+    }
+
+    fn var_declaration(&mut self) -> Result<Stmt, ParseError> {
+        let kind = match self.previous().kind {
+            TokenKind::Var => VarKind::Var,
+            TokenKind::Let => VarKind::Let,
+            TokenKind::Const => VarKind::Const,
+            _ => unreachable!(),
+        };
+        let name = self
+            .consume(TokenKind::Identifier, "Expect variable name.")?
+            .lexeme
+            .clone();
+        let initializer = if self.match_kinds(&[TokenKind::Assign]) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        self.consume(TokenKind::Semi, "Expect ';' after variable declaration.")?;
+        Ok(Stmt::Var {
+            kind,
+            name,
+            initializer,
+        })
+    }
+
+    fn statement(&mut self) -> Result<Stmt, ParseError> {
+        if self.check_kind(&TokenKind::BraceL) {
+            self.advance();
+            return Ok(Stmt::Block(self.block()?));
+        }
+        if self.is_console_log() {
+            return self.print_statement();
+        }
+        self.expression_statement()
+    }
+
+    fn is_console_log(&self) -> bool {
+        if self.current + 2 >= self.tokens.len() {
+            return false;
+        }
+        let t0 = &self.tokens[self.current];
+        let t1 = &self.tokens[self.current + 1];
+        let t2 = &self.tokens[self.current + 2];
+        t0.kind == TokenKind::Identifier
+            && t0.lexeme == "console"
+            && t1.kind == TokenKind::Dot
+            && t2.kind == TokenKind::Identifier
+            && t2.lexeme == "log"
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt, ParseError> {
+        self.advance(); // console
+        self.consume(TokenKind::Dot, "Expect '.' after console.")?;
+        {
+            let log = self.consume(TokenKind::Identifier, "Expect 'log'.")?;
+            if log.lexeme != "log" {
+                let line = log.line;
+                let lexeme = log.lexeme.clone();
+                return Err(ParseError {
+                    message: format!("at '{}': Expect 'log'.", lexeme),
+                    line,
+                });
+            }
+        }
+        self.consume(TokenKind::ParenL, "Expect '(' after console.log.")?;
+        let expr = self.expression()?;
+        self.consume(TokenKind::ParenR, "Expect ')' after argument.")?;
+        self.consume(TokenKind::Semi, "Expect ';' after console.log.")?;
+        Ok(Stmt::Print(expr))
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, ParseError> {
+        let mut stmts = Vec::new();
+        while !self.check_kind(&TokenKind::BraceR) && !self.is_at_end() {
+            stmts.push(self.declaration()?);
+        }
+        self.consume(TokenKind::BraceR, "Expect '}' after block.")?;
+        Ok(stmts)
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt, ParseError> {
         let expr = self.expression()?;
         self.consume(TokenKind::Semi, "Expect ';' after expression.")?;
-        Ok(expr)
+        Ok(Stmt::Expression(expr))
     }
 
     fn expression(&mut self) -> Result<Expr, ParseError> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr, ParseError> {
+        let expr = self.equality()?;
+        if self.match_kinds(&[TokenKind::Assign]) {
+            let value = self.assignment()?;
+            if let Expr::Variable(name) = expr {
+                return Ok(Expr::Assign {
+                    name,
+                    value: Box::new(value),
+                });
+            }
+            return Err(self.error(self.previous(), "Invalid assignment target."));
+        }
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Expr, ParseError> {
@@ -171,6 +267,12 @@ impl Parser {
             return Ok(Expr::Literal(Literal::String(inner)));
         }
 
+        if self.check_kind(&TokenKind::Identifier) {
+            let name = self.peek().lexeme.clone();
+            self.advance();
+            return Ok(Expr::Variable(name));
+        }
+
         if self.match_kinds(&[TokenKind::ParenL]) {
             let expr = self.expression()?;
             self.consume(TokenKind::ParenR, "Expect ')' after expression.")?;
@@ -180,7 +282,6 @@ impl Parser {
         Err(self.error(self.peek(), "Expect expression."))
     }
 
-    /// Discard tokens until a statement boundary (book Panic Mode).
     fn synchronize(&mut self) {
         self.advance();
         while !self.is_at_end() {
@@ -278,42 +379,68 @@ mod tests {
     use crate::ast::pretty_print;
     use crate::lexer::Scanner;
 
-    fn parse_src(source: &str) -> Result<Vec<Expr>, ParseError> {
+    fn parse_src(source: &str) -> Result<Vec<Stmt>, ParseError> {
         let tokens = Scanner::new(source).scan_tokens();
         Parser::new(tokens).parse()
     }
 
+    fn expr_of(stmt: &Stmt) -> &Expr {
+        match stmt {
+            Stmt::Expression(e) => e,
+            _ => panic!("expected expression statement, got {:?}", stmt),
+        }
+    }
+
     #[test]
     fn parses_precedence_mul_over_add() {
-        let exprs = parse_src("1 + 2 * 3;").unwrap();
-        assert_eq!(exprs.len(), 1);
-        assert_eq!(pretty_print(&exprs[0]), "(+ 1 (* 2 3))");
+        let stmts = parse_src("1 + 2 * 3;").unwrap();
+        assert_eq!(pretty_print(expr_of(&stmts[0])), "(+ 1 (* 2 3))");
     }
 
     #[test]
     fn parses_unary_grouping() {
-        let exprs = parse_src("-(4);").unwrap();
-        assert_eq!(exprs.len(), 1);
-        assert_eq!(pretty_print(&exprs[0]), "(- (group 4))");
+        let stmts = parse_src("-(4);").unwrap();
+        assert_eq!(pretty_print(expr_of(&stmts[0])), "(- (group 4))");
     }
 
     #[test]
     fn parses_left_associativity() {
-        let exprs = parse_src("1 + 2 + 3;").unwrap();
-        assert_eq!(pretty_print(&exprs[0]), "(+ (+ 1 2) 3)");
+        let stmts = parse_src("1 + 2 + 3;").unwrap();
+        assert_eq!(pretty_print(expr_of(&stmts[0])), "(+ (+ 1 2) 3)");
     }
 
     #[test]
     fn parses_ch6_acceptance_file() {
-        let exprs = parse_src("1 + 2 * 3;\n-(4);").unwrap();
-        assert_eq!(exprs.len(), 2);
-        assert_eq!(pretty_print(&exprs[0]), "(+ 1 (* 2 3))");
-        assert_eq!(pretty_print(&exprs[1]), "(- (group 4))");
+        let stmts = parse_src("1 + 2 * 3;\n-(4);").unwrap();
+        assert_eq!(stmts.len(), 2);
+        assert_eq!(pretty_print(expr_of(&stmts[0])), "(+ 1 (* 2 3))");
+        assert_eq!(pretty_print(expr_of(&stmts[1])), "(- (group 4))");
     }
 
     #[test]
     fn parses_string_literal() {
-        let exprs = parse_src(r#""hi";"#).unwrap();
-        assert_eq!(pretty_print(&exprs[0]), r#""hi""#);
+        let stmts = parse_src(r#""hi";"#).unwrap();
+        assert_eq!(pretty_print(expr_of(&stmts[0])), r#""hi""#);
+    }
+
+    #[test]
+    fn parses_var_and_console_log() {
+        let stmts = parse_src("var a = 1;\nvar b = a + 3;\nconsole.log(b);").unwrap();
+        assert_eq!(stmts.len(), 3);
+        match &stmts[0] {
+            Stmt::Var {
+                kind: VarKind::Var,
+                name,
+                initializer: Some(init),
+            } => {
+                assert_eq!(name, "a");
+                assert_eq!(pretty_print(init), "1");
+            }
+            other => panic!("{:?}", other),
+        }
+        match &stmts[2] {
+            Stmt::Print(e) => assert_eq!(pretty_print(e), "b"),
+            other => panic!("{:?}", other),
+        }
     }
 }
