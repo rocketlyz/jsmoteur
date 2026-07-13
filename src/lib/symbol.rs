@@ -72,6 +72,49 @@ pub fn value_of_keyword(key: Keyword) -> &'static str {
   }
 }
 
+pub fn keyword_from_str(s: &str) -> Option<Keyword> {
+  match s {
+    "break" => Some(Keyword::Break),
+    "case" => Some(Keyword::Case),
+    "catch" => Some(Keyword::Catch),
+    "class" => Some(Keyword::Class),
+    "const" => Some(Keyword::Const),
+    "continue" => Some(Keyword::Continue),
+    "default" => Some(Keyword::Default),
+    "delete" => Some(Keyword::Delete),
+    "do" => Some(Keyword::Do),
+    "else" => Some(Keyword::Else),
+    "enum" => Some(Keyword::Enum),
+    "export" => Some(Keyword::Export),
+    "extends" => Some(Keyword::Extends),
+    "finally" => Some(Keyword::Finally),
+    "for" => Some(Keyword::For),
+    "function" => Some(Keyword::Function),
+    "if" => Some(Keyword::If),
+    "import" => Some(Keyword::Import),
+    "in" => Some(Keyword::In),
+    "instanceof" => Some(Keyword::Instanceof),
+    "let" => Some(Keyword::Let),
+    "new" => Some(Keyword::New),
+    "return" => Some(Keyword::Return),
+    "super" => Some(Keyword::Super),
+    "switch" => Some(Keyword::Switch),
+    "this" => Some(Keyword::This),
+    "throw" => Some(Keyword::Throw),
+    "try" => Some(Keyword::Try),
+    "typeof" => Some(Keyword::Typeof),
+    "var" => Some(Keyword::Var),
+    "void" => Some(Keyword::Void),
+    "while" => Some(Keyword::While),
+    "with" => Some(Keyword::With),
+    _ => None,
+  }
+}
+
+pub fn is_keyword(s: &str) -> bool {
+  keyword_from_str(s).is_some()
+}
+
 pub enum Denotation {
   BraceL,
   BraceR,

@@ -1,66 +1,74 @@
-use crate::symbol::{value_of_annotation, value_of_keyword};
+use std::fmt;
 
-enum TokenType {
-    ParenL,     // (
-    ParenR,     // )
-    BracketL,   // [
-    BracketR,   // ]
-    BraceL,     // {
-    BraceR,     // }
-    String,     // string
-    Identifier, // identifier
-    Number,     // number
-    Colon,      // :
-    Comma,      // ,
-    True,       // true
-    False,      // false
-    Null,       // null
-    End,        // end
-    Dot,        // .
-    Assign,     // =
-    Semi,       // ;
-    Error,      // error
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
+    // Single-character punctuation / operators (MVP)
+    ParenL,
+    ParenR,
+    BraceL,
+    BraceR,
+    BracketL,
+    BracketR,
+    Comma,
+    Dot,
+    Semi,
+    Assign,
+    Add,
+    Sub,
+    Mul,
+    Div,
+
+    // Literals
+    Identifier,
+    String,
+    Number(f64),
+    True,
+    False,
+    Null,
+
+    // Keywords
+    Var,
+    Let,
+    Const,
+    Function,
+    If,
+    Else,
+    Return,
+    While,
+    For,
+    Class,
+    New,
+    This,
+    Super,
+
+    Eof,
+    Error,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-    _type: &'static str,
-    source: &'static str,
-    start_pos: usize,
-    end_pos: usize,
-    length: usize,
+    pub kind: TokenKind,
+    pub lexeme: String,
+    pub line: usize,
 }
 
 impl Token {
-    pub fn new(_type: &'static str, source: &'static str) -> Self {
+    pub fn new(kind: TokenKind, lexeme: impl Into<String>, line: usize) -> Self {
         Token {
-            _type: _type,
-            source: source,
-            start_pos: 0,
-            end_pos: 0,
-            length: source.chars().count(),
+            kind,
+            lexeme: lexeme.into(),
+            line,
         }
     }
+}
 
-    pub fn get_current_char(&self, start: usize) -> &str {
-        let res = self.source;
-        return &res[start..start + 1];
-    }
-
-    pub fn is_empty(&self, current_char: &str) -> bool {
-        return current_char.contains(char::is_whitespace);
-    }
-
-    pub fn next_token(&mut self) -> &str {
-        let mut end_pos = self.end_pos;
-        let mut current_char = self.get_current_char(end_pos);
-        let res = self.source;
-        let start_pos = self.start_pos;
-        while !self.is_empty(current_char) && end_pos < self.length {
-            current_char = self.get_current_char(end_pos);
-            end_pos += 1;
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            TokenKind::Number(n) => write!(f, "[NUMBER {} line {}]", n, self.line),
+            TokenKind::Eof => write!(f, "[EOF '' line {}]", self.line),
+            TokenKind::Error => write!(f, "[ERROR '{}' line {}]", self.lexeme, self.line),
+            other => write!(f, "[{:?} '{}' line {}]", other, self.lexeme, self.line),
         }
-        self.start_pos = end_pos;
-        self.end_pos = end_pos;
-        return &res[start_pos..end_pos];
     }
 }
