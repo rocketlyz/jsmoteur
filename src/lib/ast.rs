@@ -42,6 +42,10 @@ pub enum Expr {
         name: String,
         value: Box<Expr>,
     },
+    Call {
+        callee: Box<Expr>,
+        arguments: Vec<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -62,6 +66,14 @@ pub enum Stmt {
     While {
         condition: Expr,
         body: Box<Stmt>,
+    },
+    Function {
+        name: String,
+        params: Vec<String>,
+        body: Vec<Stmt>,
+    },
+    Return {
+        value: Option<Expr>,
     },
 }
 
@@ -102,6 +114,10 @@ pub fn pretty_print(expr: &Expr) -> String {
         Expr::Grouping(inner) => format!("(group {})", pretty_print(inner)),
         Expr::Variable(name) => name.clone(),
         Expr::Assign { name, value } => format!("(assign {} {})", name, pretty_print(value)),
+        Expr::Call { callee, arguments } => {
+            let args: Vec<_> = arguments.iter().map(pretty_print).collect();
+            format!("(call {} {})", pretty_print(callee), args.join(" "))
+        }
     }
 }
 
@@ -150,6 +166,15 @@ pub fn pretty_print_stmt(stmt: &Stmt) -> String {
             pretty_print(condition),
             pretty_print_stmt(body)
         ),
+        Stmt::Function { name, params, body } => {
+            let params = params.join(" ");
+            let body: Vec<_> = body.iter().map(pretty_print_stmt).collect();
+            format!("(fun {} ({}) {})", name, params, body.join(" "))
+        }
+        Stmt::Return { value } => match value {
+            Some(e) => format!("(return {})", pretty_print(e)),
+            None => "(return)".to_string(),
+        },
     }
 }
 

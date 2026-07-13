@@ -1,13 +1,10 @@
-//! Recursive-descent parser (expressions + statements, Ch.6–9).
+//! Recursive-descent parser (expressions + statements, Ch.6–10).
 //!
 //! Program: declaration* until Eof
-//! declaration → varDecl | statement
-//! statement   → if | while | for | printStmt | block | exprStmt
-//! expression  → assignment
-//! assignment  → IDENTIFIER "=" assignment | logic_or
-//! logic_or    → logic_and ( "||" logic_and )*
-//! logic_and   → equality ( "&&" equality )*
-//! … equality → … → primary
+//! declaration → funDecl | varDecl | statement
+//! statement   → return | if | while | for | printStmt | block | exprStmt
+//! assignment  → (call) "=" assignment | logic_or   // only Variable assignable
+//! call        → primary ( "(" arguments? ")" )*
 //! for desugars to Block + While.
 
 use crate::ast::{Expr, Literal, Stmt, VarKind};
@@ -58,10 +55,38 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<Stmt, ParseError> {
+        if self.match_kinds(&[TokenKind::Function]) {
+            return self.function_declaration();
+        }
         if self.match_kinds(&[TokenKind::Var, TokenKind::Let, TokenKind::Const]) {
             return self.var_declaration();
         }
         self.statement()
+    }
+
+    fn function_declaration(&mut self) -> Result<Stmt, ParseError> {
+        let name = self
+            .consume(TokenKind::Identifier, "Expect function name.")?
+            .lexeme
+            .clone();
+        self.consume(TokenKind::ParenL, "Expect '(' after function name.")?;
+        let mut params = Vec::new();
+        if !self.check_kind(&TokenKind::ParenR) {
+            loop {
+                params.push(
+                    self.consume(TokenKind::Identifier, "Expect parameter name.")?
+                        .lexeme
+                        .clone(),
+                );
+                if !self.match_kinds(&[TokenKind::Comma]) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenKind::ParenR, "Expect ')' after parameters.")?;
+        self.consume(TokenKind::BraceL, "Expect '{' before function body.")?;
+        let body = self.block()?;
+        Ok(Stmt::Function { name, params, body })
     }
 
     fn var_declaration(&mut self) -> Result<Stmt, ParseError> {
@@ -89,6 +114,9 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt, ParseError> {
+        if self.match_kinds(&[TokenKind::Return]) {
+            return self.return_statement();
+        }
         if self.match_kinds(&[TokenKind::If]) {
             return self.if_statement();
         }
@@ -106,6 +134,16 @@ impl Parser {
             return self.print_statement();
         }
         self.expression_statement()
+    }
+
+    fn return_statement(&mut self) -> Result<Stmt, ParseError> {
+        let value = if !self.check_kind(&TokenKind::Semi) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        self.consume(TokenKind::Semi, "Expect ';' after return value.")?;
+        Ok(Stmt::Return { value })
     }
 
     fn if_statement(&mut self) -> Result<Stmt, ParseError> {
@@ -345,7 +383,32 @@ impl Parser {
                 right: Box::new(right),
             });
         }
-        self.primary()
+        self.call()
+    }
+
+    fn call(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.primary()?;
+        while self.match_kinds(&[TokenKind::ParenL]) {
+            expr = self.finish_call(expr)?;
+        }
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> Result<Expr, ParseError> {
+        let mut arguments = Vec::new();
+        if !self.check_kind(&TokenKind::ParenR) {
+            loop {
+                arguments.push(self.expression()?);
+                if !self.match_kinds(&[TokenKind::Comma]) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenKind::ParenR, "Expect ')' after arguments.")?;
+        Ok(Expr::Call {
+            callee: Box::new(callee),
+            arguments,
+        })
     }
 
     fn primary(&mut self) -> Result<Expr, ParseError> {

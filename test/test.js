@@ -3,4 +3,4 @@ var b = a + 3;
 function acc(a, b) {
   console.log(a + b);
 }
-acc();
+acc(a, b);

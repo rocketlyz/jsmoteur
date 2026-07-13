@@ -1,22 +1,21 @@
-//! Tree-walk interpreter (expressions Ch.7 + statements/state Ch.8).
+//! Tree-walk interpreter (Ch.7–10).
 //!
 //! Semantics (documented for this subset):
 //! - `+`: Number+Number add; String+String concat; else runtime error (no coercion).
 //! - `==` / `!=` / `===` / `!==`: same strict equality (tag + content).
-//! - Truthy (`!`): only `null` and `false` are falsy; `0` and `""` are truthy
-//!   (ponytail: JS-simplified; upgrade to full JS falsy later if needed).
+//! - Truthy (`!`): only `null` and `false` are falsy; `0` and `""` are truthy.
 //! - Uninitialized `var`/`let`/`const` → `null`.
-//! - `console.log` → `Stmt::Print` (host stdout / collected output).
-//! - `if` / `while`; `for` desugared in parser; `&&` / `||` short-circuit (JS-style values).
+//! - `console.log` → `Stmt::Print`.
+//! - `if` / `while`; `for` desugared in parser; `&&` / `||` short-circuit.
+//! - Functions: `Value::Function` + Call + Return (arity must match).
 
 use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
 use crate::ast::{Expr, Literal, Stmt};
-use crate::env::Environment;
+use crate::env::{Environment, Value};
 use crate::token::TokenKind;
-use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeError {
@@ -29,9 +28,13 @@ impl fmt::Display for RuntimeError {
     }
 }
 
+enum ExecResult {
+    Continue,
+    Return(Value),
+}
+
 pub struct Interpreter {
     environment: Rc<RefCell<Environment>>,
-    /// Captured `console.log` lines (also printed to stdout when `echo` is true).
     pub output: Vec<String>,
     echo: bool,
 }
@@ -55,16 +58,21 @@ impl Interpreter {
 
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<(), RuntimeError> {
         for stmt in stmts {
-            self.execute(stmt)?;
+            match self.execute(stmt)? {
+                ExecResult::Continue => {}
+                ExecResult::Return(_) => {
+                    return Err(err("Cannot return from top-level code."));
+                }
+            }
         }
         Ok(())
     }
 
-    fn execute(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
+    fn execute(&mut self, stmt: &Stmt) -> Result<ExecResult, RuntimeError> {
         match stmt {
             Stmt::Expression(expr) => {
                 self.evaluate(expr)?;
-                Ok(())
+                Ok(ExecResult::Continue)
             }
             Stmt::Print(expr) => {
                 let value = self.evaluate(expr)?;
@@ -73,7 +81,7 @@ impl Interpreter {
                     println!("{}", line);
                 }
                 self.output.push(line);
-                Ok(())
+                Ok(ExecResult::Continue)
             }
             Stmt::Var {
                 kind: _,
@@ -87,20 +95,9 @@ impl Interpreter {
                 self.environment
                     .borrow_mut()
                     .define(name.clone(), value);
-                Ok(())
+                Ok(ExecResult::Continue)
             }
-            Stmt::Block(stmts) => {
-                let previous = Rc::clone(&self.environment);
-                self.environment = Environment::child(Rc::clone(&previous));
-                let result = (|| {
-                    for s in stmts {
-                        self.execute(s)?;
-                    }
-                    Ok(())
-                })();
-                self.environment = previous;
-                result
-            }
+            Stmt::Block(stmts) => self.execute_block(stmts, Environment::child(Rc::clone(&self.environment))),
             Stmt::If {
                 condition,
                 then_branch,
@@ -111,16 +108,63 @@ impl Interpreter {
                 } else if let Some(els) = else_branch {
                     self.execute(els)
                 } else {
-                    Ok(())
+                    Ok(ExecResult::Continue)
                 }
             }
             Stmt::While { condition, body } => {
                 while is_truthy(&self.evaluate(condition)?) {
-                    self.execute(body)?;
+                    match self.execute(body)? {
+                        ExecResult::Continue => {}
+                        ExecResult::Return(v) => return Ok(ExecResult::Return(v)),
+                    }
                 }
-                Ok(())
+                Ok(ExecResult::Continue)
+            }
+            Stmt::Function { name, params, body } => {
+                let function = Value::Function {
+                    name: name.clone(),
+                    params: Rc::from(params.as_slice()),
+                    body: Rc::from(body.as_slice()),
+                    closure: Rc::clone(&self.environment),
+                };
+                self.environment
+                    .borrow_mut()
+                    .define(name.clone(), function);
+                Ok(ExecResult::Continue)
+            }
+            Stmt::Return { value } => {
+                let v = match value {
+                    Some(e) => self.evaluate(e)?,
+                    None => Value::Null,
+                };
+                Ok(ExecResult::Return(v))
             }
         }
+    }
+
+    fn execute_block(
+        &mut self,
+        stmts: &[Stmt],
+        environment: Rc<RefCell<Environment>>,
+    ) -> Result<ExecResult, RuntimeError> {
+        let previous = Rc::clone(&self.environment);
+        self.environment = environment;
+        let mut result = Ok(ExecResult::Continue);
+        for stmt in stmts {
+            match self.execute(stmt) {
+                Ok(ExecResult::Continue) => {}
+                Ok(ExecResult::Return(v)) => {
+                    result = Ok(ExecResult::Return(v));
+                    break;
+                }
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            }
+        }
+        self.environment = previous;
+        result
     }
 
     fn evaluate(&mut self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -176,11 +220,50 @@ impl Interpreter {
                 let r = self.evaluate(right)?;
                 binary(op, l, r)
             }
+            Expr::Call { callee, arguments } => {
+                let callee_val = self.evaluate(callee)?;
+                let mut args = Vec::with_capacity(arguments.len());
+                for arg in arguments {
+                    args.push(self.evaluate(arg)?);
+                }
+                self.call_value(callee_val, args)
+            }
+        }
+    }
+
+    fn call_value(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        match callee {
+            Value::Function {
+                name,
+                params,
+                body,
+                closure,
+            } => {
+                if args.len() != params.len() {
+                    return Err(err(&format!(
+                        "Expected {} arguments but got {} for '{}'.",
+                        params.len(),
+                        args.len(),
+                        name
+                    )));
+                }
+                let frame = Environment::child(closure);
+                {
+                    let mut env = frame.borrow_mut();
+                    for (param, arg) in params.iter().zip(args.into_iter()) {
+                        env.define(param.clone(), arg);
+                    }
+                }
+                match self.execute_block(&body, frame)? {
+                    ExecResult::Return(v) => Ok(v),
+                    ExecResult::Continue => Ok(Value::Null),
+                }
+            }
+            _ => Err(err("Can only call functions.")),
         }
     }
 }
 
-/// Convenience: run statements with echoing prints (for `main`).
 pub fn interpret(stmts: &[Stmt]) -> Result<Vec<String>, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.interpret(stmts)?;
@@ -239,13 +322,7 @@ fn is_truthy(v: &Value) -> bool {
 }
 
 fn is_equal(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Null, Value::Null) => true,
-        (Value::Bool(x), Value::Bool(y)) => x == y,
-        (Value::Number(x), Value::Number(y)) => x == y,
-        (Value::String(x), Value::String(y)) => x == y,
-        _ => false,
-    }
+    a == b
 }
 
 fn err(message: &str) -> RuntimeError {
@@ -259,7 +336,6 @@ mod tests {
     use super::*;
     use crate::lexer::Scanner;
     use crate::parser::Parser;
-    use crate::value::Value;
 
     fn run(source: &str) -> Result<Interpreter, RuntimeError> {
         let tokens = Scanner::new(source).scan_tokens();
@@ -274,7 +350,6 @@ mod tests {
     #[test]
     fn evals_precedence() {
         let interp = run("1 + 2 * 3;").unwrap();
-        // expression stmt: no print; just ensure no error
         assert!(interp.output.is_empty());
     }
 
@@ -358,5 +433,32 @@ mod tests {
             interp.output,
             vec!["0".to_string(), "1".to_string(), "2".to_string()]
         );
+    }
+
+    #[test]
+    fn ch10_acceptance_add() {
+        let interp = run(
+            "function add(a, b) { return a + b; }\nconsole.log(add(1, 2));",
+        )
+        .unwrap();
+        assert_eq!(interp.output, vec!["3".to_string()]);
+    }
+
+    #[test]
+    fn arity_mismatch_errors() {
+        let err = match run("function f(a) { return a; }\nf();") {
+            Err(e) => e,
+            Ok(_) => panic!("expected arity error"),
+        };
+        assert!(err.message.contains("Expected 1 arguments"));
+    }
+
+    #[test]
+    fn test_js_style_acc() {
+        let interp = run(
+            "var a = 1;\nvar b = a + 3;\nfunction acc(a, b) { console.log(a + b); }\nacc(a, b);",
+        )
+        .unwrap();
+        assert_eq!(interp.output, vec!["5".to_string()]);
     }
 }

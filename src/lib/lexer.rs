@@ -318,6 +318,9 @@ mod tests {
                 &TokenKind::BraceR,
                 &TokenKind::Identifier,
                 &TokenKind::ParenL,
+                &TokenKind::Identifier,
+                &TokenKind::Comma,
+                &TokenKind::Identifier,
                 &TokenKind::ParenR,
                 &TokenKind::Semi,
                 &TokenKind::Eof,
@@ -330,6 +333,8 @@ mod tests {
         assert_eq!(tokens[20].lexeme, "console");
         assert_eq!(tokens[22].lexeme, "log");
         assert_eq!(tokens[30].lexeme, "acc");
+        assert_eq!(tokens[32].lexeme, "a");
+        assert_eq!(tokens[34].lexeme, "b");
     }
 
     #[test]

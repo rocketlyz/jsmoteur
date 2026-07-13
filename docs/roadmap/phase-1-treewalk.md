@@ -17,7 +17,7 @@
 - [x] Ch.7 Evaluating Expressions
 - [x] Ch.8 Statements and State
 - [x] Ch.9 Control Flow
-- [ ] Ch.10 Functions
+- [x] Ch.10 Functions
 - [ ] Ch.11 Resolving and Binding
 - [ ] Ch.12–13 Classes / Inheritance（可选）
 
@@ -181,13 +181,19 @@ console.log(add(1, 2));  // 3
 
 **书中框架：** **Lexical Scope** 精确定义、**Resolver** 语义分析遍、修复闭包捕获时机。
 
+**本仓库语义（跟 JS，不跟 Lox）：**
+
+- `var`：**函数作用域**（顶层则全局），**不是**块作用域；块内 `var a` 与外层同名合并为同一绑定，声明提升，赋值仍在原处执行。
+- `let` / `const`：块作用域；进入作用域到初始化前为 TDZ（访问报错）。
+- Resolver 按上述规则算绑定；书中「两次都 print global」是 Lox 块作用域 `var` 的结果，**本仓库不以之为验收目标**。
+
 **本仓库改动：**
 
 - 新建 `[src/lib/resolver.rs](../../src/lib/resolver.rs)`
 - 在 interpret 前跑 resolve；变量访问带「作用域深度」或等价距离
-- 经典用例：声明前调用的闭包不应错误绑定到后声明的同名变量
+- `var` / `let` / `const` 作用域规则按 JS 子集实现（与当前 Environment 行为对齐后再静态化）
 
-**最小验收：**
+**最小验收（`var`，与浏览器一致）：**
 
 ```js
 var a = "global";
@@ -199,7 +205,9 @@ var a = "global";
 }
 ```
 
-两行输出均应为 `global`（与书中闭包修复目标一致；若采用 `let` TDZ，在文档中注明语义差异）。
+输出依次为 `global`、`block`（同一绑定；中间赋值为 `"block"`）。
+
+**补充验收（`let` 块作用域，可选）：** 块内 `let a` 遮蔽外层；闭包应绑到解析时确定的那一层（含 TDZ 行为在文档中写清）。
 
 ---
 
