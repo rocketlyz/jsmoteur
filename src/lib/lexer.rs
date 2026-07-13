@@ -298,11 +298,26 @@ mod tests {
                 &TokenKind::Add,
                 &TokenKind::Number(3.0),
                 &TokenKind::Semi,
+                &TokenKind::Function,
+                &TokenKind::Identifier,
+                &TokenKind::ParenL,
+                &TokenKind::Identifier,
+                &TokenKind::Comma,
+                &TokenKind::Identifier,
+                &TokenKind::ParenR,
+                &TokenKind::BraceL,
                 &TokenKind::Identifier,
                 &TokenKind::Dot,
                 &TokenKind::Identifier,
                 &TokenKind::ParenL,
                 &TokenKind::Identifier,
+                &TokenKind::Add,
+                &TokenKind::Identifier,
+                &TokenKind::ParenR,
+                &TokenKind::Semi,
+                &TokenKind::BraceR,
+                &TokenKind::Identifier,
+                &TokenKind::ParenL,
                 &TokenKind::ParenR,
                 &TokenKind::Semi,
                 &TokenKind::Eof,
@@ -311,9 +326,10 @@ mod tests {
 
         assert_eq!(tokens[1].lexeme, "a");
         assert_eq!(tokens[6].lexeme, "b");
-        assert_eq!(tokens[12].lexeme, "console");
-        assert_eq!(tokens[14].lexeme, "log");
-        assert_eq!(tokens[16].lexeme, "b");
+        assert_eq!(tokens[13].lexeme, "acc");
+        assert_eq!(tokens[20].lexeme, "console");
+        assert_eq!(tokens[22].lexeme, "log");
+        assert_eq!(tokens[30].lexeme, "acc");
     }
 
     #[test]
