@@ -14,7 +14,7 @@
 - [x] Ch.4 Scanning（补齐）
 - [x] Ch.5 Representing Code
 - [x] Ch.6 Parsing Expressions
-- [ ] Ch.7 Evaluating Expressions
+- [x] Ch.7 Evaluating Expressions
 - [ ] Ch.8 Statements and State
 - [ ] Ch.9 Control Flow
 - [ ] Ch.10 Functions
@@ -102,9 +102,10 @@ AST 体现 `*` 高于 `+`；一元 `-` 正确挂载。
 
 ```js
 1 + 2 * 3;   // → 7
-"a" + "b";   // 若支持字符串加法，按既定语义；否则明确报错
+"a" + "b";   // → "ab"（拼接）；Number+Number 相加；其它组合运行时错误（无隐式强制转换）
 ```
 
+**本仓库语义备注：** `!` 的 truthy 仅 `null`/`false` 为假（`0`、`""` 仍为真，刻意简化）。
 ---
 
 

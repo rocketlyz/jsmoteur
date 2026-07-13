@@ -3,6 +3,7 @@ use std::fs;
 use std::process::exit;
 
 use lib::ast::pretty_print;
+use lib::interpreter::interpret;
 use lib::lexer::Scanner;
 use lib::parser::Parser;
 
@@ -27,10 +28,24 @@ fn main() {
 
     println!("\n--- ast ---");
     let mut parser = Parser::new(tokens);
-    match parser.parse() {
+    let exprs = match parser.parse() {
         Ok(exprs) => {
-            for expr in exprs {
-                println!("{}", pretty_print(&expr));
+            for expr in &exprs {
+                println!("{}", pretty_print(expr));
+            }
+            exprs
+        }
+        Err(e) => {
+            eprintln!("{}", e);
+            exit(1);
+        }
+    };
+
+    println!("\n--- values ---");
+    match interpret(&exprs) {
+        Ok(values) => {
+            for v in values {
+                println!("{}", v);
             }
         }
         Err(e) => {
